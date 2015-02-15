@@ -9,6 +9,8 @@ This is set up for North America NTSC Channel 3 Only.
 
 Do not add an amplifier to this device.  You will likely violate broadcast restrictions.
 
+Check out the video explaination here: http://youtu.be/DJyQi0aUqVQ
+
 # Setup
 
 * Plug two wires into PB3 and PB4 of your AVR, PB3 should be shorter than PB4.
