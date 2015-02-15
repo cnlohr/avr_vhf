@@ -1,0 +1,243 @@
+/*
+
+	WARNING: Connecting an AVR to ethernet without magnetics is VERY DANGEROUS.
+	It may cause high voltages to go through the AVR and destroy it in DANGEROUS
+	that may harm personal safety.  Do only at your own risk.
+
+*/
+
+/*
+    Copyright (C) 2014 <>< Charles Lohr
+
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+	copy of this software and associated documentation files (the "Software"),
+	to deal in the Software without restriction, including without limitation
+	the rights to use, copy, modify, merge, publish, distribute, sublicense,
+	and/or sell copies of the Software, and to permit persons to whom the
+	Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included
+	in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+	OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+	MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+	IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+	CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+	TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+	SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <avr/sleep.h>
+#include <util/delay.h>
+#include <avr/pgmspace.h>
+#include "ntscfont.h"
+
+void delay_ms(uint32_t time) {
+  uint32_t i;
+  for (i = 0; i < time; i++) {
+    _delay_ms(1);
+  }
+}
+
+#define NOOP asm volatile("nop" ::)
+
+void NumToText( char * c, uint8_t a )
+{
+	c[0] = (a/100)+'0';
+	c[1] = ((a/10)%10)+'0';
+	c[2] = (a%10)+'0';
+	c[3] = 0;
+}
+
+int main( )
+{
+	cli();
+
+	CLKPR = 0x80;	/*Setup CLKPCE to be receptive*/
+	CLKPR = 0x00;	/*No scalar*/
+
+	PLLCSR = _BV(PLLE) | _BV( PCKE );
+//	PLLCSR |= _BV(LSM);
+
+	DDRB = _BV(1);
+
+	DDRB |= _BV(3);
+	DDRB |= _BV(4);
+	PORTB |= _BV(1);
+
+	TCCR1 = _BV(CS10);// | _BV(CTC1); //Clear on trigger.
+	GTCCR |= _BV(PWM1B) |  _BV(COM1B0);// | _BV(COM1B1);
+	OCR1B = 1;
+	OCR1C = 3;
+	DTPS1 = 0;
+	DT1B = _BV(0) | _BV(4);
+
+	TCCR0A = 0;
+	TCCR0B = _BV(CS01);
+
+/*	while(1)
+	{
+		OSCCAL++;
+		if( OSCCAL > 190 ) OSCCAL = 180;
+		_delay_ms(10);
+	}
+*/
+
+//	OSCCAL = 191; On MF badge
+
+/*while(1)
+{
+	OSCCAL++;
+	if( OSCCAL > 210 ) OSCCAL = 205;
+	_delay_ms(10);
+}*/
+	OSCCAL=186;
+
+
+#define POWERSET3
+
+#ifdef POWERSET
+#define NTSC_HI  {	DDRB=0;}
+#define NTSC_LOW {	DDRB=_BV(4); }
+#define NTSC_VH  {	DDRB=_BV(3); }
+#elif defined( POWERSET2 )
+#define NTSC_VH  {	DDRB=0;}
+#define NTSC_LOW {	DDRB=_BV(4)|_BV(3); }
+#define NTSC_HI  {	DDRB=_BV(3); }
+#elif defined( POWERSET3 )
+#define NTSC_LOW  {	DDRB=0;}
+#define NTSC_HI {	DDRB=_BV(3); }
+#define NTSC_VH  {	DDRB=_BV(4)|_BV(3); }
+#else
+
+//Experimental mechanisms for changing power. Don't work.
+#define NTSC_VH  {	OCR1C = 3; TCNT1 = 0; }
+#define NTSC_HI  {	OCR1C = 6; TCNT1 = 0;}
+#define NTSC_LOW {	OCR1C = 0; TCNT1 = 0;}
+
+#endif
+	uint8_t line, i;
+
+	#define TIMEOFFSET .12
+	#define CLKOFS .12
+
+	uint8_t frame = 0, k, ctll;
+	char stdsr[8*6];
+	sprintf( stdsr+8, "Hello" );
+	sprintf( stdsr+16, "World" );
+	sprintf( stdsr+24, "ADC:" );
+	sprintf( stdsr+32, "        " );
+	sprintf( stdsr+40, "        " );
+	sprintf( stdsr+48, "        " );
+
+
+	ADMUX = _BV(REFS1) | _BV(ADLAR) | 1; //1 = PB2
+	ADCSRA = _BV(ADEN) | _BV(ADSC) | _BV(ADATE) | _BV(ADPS2) | _BV(ADPS1);
+
+#define LINETIME 81
+	while(1)
+/*	{
+		NTSC_HI;
+		_delay_ms(1);
+		NTSC_LOW;
+		_delay_ms(1);
+	}*/
+	{
+		frame++;
+		//H = 1./15734.264 = 63.555 / 2 = 31.7775
+		for( line = 0; line < 6; line++ )
+		{ NTSC_LOW; _delay_us(2.3-TIMEOFFSET); NTSC_HI; _delay_us(29.5-TIMEOFFSET-CLKOFS); }
+		for( line = 0; line < 6; line++ )
+		{ NTSC_LOW; _delay_us(27.1-TIMEOFFSET); NTSC_HI; _delay_us(4.7-TIMEOFFSET-CLKOFS); }
+		for( line = 0; line < 6; line++ )
+		{ NTSC_LOW; _delay_us(2.3-TIMEOFFSET); NTSC_HI; _delay_us(29.5-TIMEOFFSET-CLKOFS); }
+
+//#define RTEST
+#ifdef RTEST
+		for( line = 0; line < 10; line++ )
+		{ NTSC_LOW; _delay_us(4.7-TIMEOFFSET); NTSC_HI; _delay_us(58.5-TIMEOFFSET-CLKOFS); }
+		for( line = 0; line < 242; line++ )
+		{ NTSC_LOW; _delay_us(4.7-TIMEOFFSET);
+			NTSC_HI; 
+			_delay_us(29.9-TIMEOFFSET-CLKOFS);
+			NTSC_VH;
+			_delay_us(29.5-TIMEOFFSET-CLKOFS);
+		 }
+#else
+		for( line = 0; line < 39; line++ )
+		{
+			TCNT0 = LINETIME;
+			NTSC_LOW;
+			_delay_us(4.7-TIMEOFFSET);
+			NTSC_HI;
+
+			//Do whatever you want.
+			//sprintf( stdsr, "%d", frame );
+			if( line == 0 )
+			{
+				NumToText( stdsr, frame );
+			}
+			else if( line == 1 )
+			{
+				NumToText( stdsr+28, ADCH );
+			}
+
+			while(TCNT0);
+			//_delay_us(58.8-TIMEOFFSET-CLKOFS);
+		}
+
+		for( line = 0; line < 2; line++ )
+		{
+			TCNT0 = LINETIME;
+			NTSC_LOW;
+			_delay_us(4.7-TIMEOFFSET);
+			NTSC_VH;
+			while(TCNT0);
+		}
+
+		for( line = 0; line < 220; line++ )
+		{
+			TCNT0 = LINETIME;
+			NTSC_LOW; _delay_us(4.7-TIMEOFFSET); 
+			NTSC_HI; _delay_us(8-TIMEOFFSET-CLKOFS);
+
+			ctll = line>>2;
+			for( k = 0; k < 8; k++ )
+			{
+			uint8_t ch = pgm_read_byte( &font_8x8_data[(stdsr[k+((ctll>>3)<<3)]<<3)] + (ctll&0x07) );
+			for( i = 0; i < 8; i++ )
+			{
+				if( (ch&1) )
+				{
+					NTSC_VH;
+				}
+				else
+				{
+					NTSC_HI;
+					NOOP;
+				}
+				ch>>=1;
+				NOOP; NOOP;
+			}
+					NTSC_HI;
+
+			}
+
+			NTSC_HI;// _delay_us(46-TIMEOFFSET-CLKOFS);
+			while(TCNT0);
+
+//		NTSC_HI; _delay_us(46-TIMEOFFSET-CLKOFS);
+
+//			NTSC_VH; _delay_us(32-TIMEOFFSET-CLKOFS);
+//			NTSC_HI; _delay_us(19.8-TIMEOFFSET-CLKOFS);
+		}
+#endif
+	}
+	
+	return 0;
+} 
